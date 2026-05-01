@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -196,22 +197,57 @@ private fun formatSize(bytes: Long): String {
 
 private fun openFile(context: Context, file: FileEntity) {
     val f = File(file.path)
-    if (!f.exists()) return
-    if (file.isDir) return
-    val uri = try {
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-    } catch (e: Exception) {
+    if (!f.exists()) {
+        toast(context, "文件不存在: ${file.path}")
         return
     }
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, mimeOf(file.name))
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (file.isDir) {
+        toast(context, "这是一个目录")
+        return
     }
-    try {
-        context.startActivity(Intent.createChooser(intent, "打开").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+    val uri: Uri = try {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
     } catch (e: Exception) {
+        toast(context, "FileProvider 失败: ${e.message}")
+        e.printStackTrace()
+        return
+    }
+
+    val mime = mimeOf(file.name)
+
+    fun build(intentMime: String): Intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, intentMime)
+        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+
+    var intent = build(mime)
+    var handlers = context.packageManager.queryIntentActivities(intent, 0)
+
+    if (handlers.isEmpty() && mime != "*/*") {
+        intent = build("*/*")
+        handlers = context.packageManager.queryIntentActivities(intent, 0)
+    }
+
+    if (handlers.isEmpty()) {
+        toast(context, "没有应用能打开 .${file.ext}")
+        return
+    }
+
+    try {
+        val chooser = Intent.createChooser(intent, "打开 ${file.name}").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        toast(context, "启动失败: ${e.message}")
         e.printStackTrace()
     }
+}
+
+private fun toast(ctx: Context, msg: String) {
+    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
 }
 
 private fun mimeOf(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
